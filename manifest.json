@@ -1,0 +1,20 @@
+{
+  "name": "말씀 새김 - 성경통독 · 성경필사",
+  "short_name": "말씀 새김",
+  "description": "개역한글과 영어 성경 본문을 매일 한 절씩 따라 쓰며 묵상하는 성경 필사 앱입니다.",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "id": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#4f46e5",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "./icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "./icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "./icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "maskable" },
+    { "src": "./icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
