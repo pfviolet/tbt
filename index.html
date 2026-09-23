@@ -4,15 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>말씀 새김 - Trendy Bible Transcription (개역한글 & 영어 성경 연동)</title>
+
+    <!-- PWA: 홈 화면 설치용 매니페스트 및 아이콘 -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4f46e5">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
     <meta name="mobile-web-app-capable" content="yes">
+    <!-- iOS(아이폰) 홈 화면 추가용 -->
     <link rel="apple-touch-icon" href="icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="말씀 새김">
+
+    <!-- 필사 입력칸 커서 정렬: 글자 레이어와 입력 레이어의 글꼴 지표를 일치시킴 -->
     <style>
         #diffDisplayOverlay, #userInputArea {
             font-family: inherit;
@@ -33,6 +38,7 @@
         }
     </style>
     <script>
+        // 글이 길어져 스크롤될 때 두 레이어를 같은 위치로 유지
         window.addEventListener('DOMContentLoaded', function () {
             var ta = document.getElementById('userInputArea');
             var ov = document.getElementById('diffDisplayOverlay');
@@ -127,6 +133,10 @@
                             <i class="fa-solid fa-pen-nib"></i>
                             <span>이 말씀 필사하기</span>
                         </button>
+                        <button id="resumeBtn" onclick="resumeLastVerse()" class="hidden px-5 py-2.5 rounded-xl bg-white/10 backdrop-blur-md text-white font-medium text-xs md:text-sm border border-white/20 hover:bg-white/20 transition-all items-center space-x-2">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            <span id="resumeBtnLabel">이어서 필사</span>
+                        </button>
                         <button onclick="switchTab('programs')" class="px-5 py-2.5 rounded-xl bg-white/10 backdrop-blur-md text-white font-medium text-xs md:text-sm border border-white/20 hover:bg-white/20 transition-all flex items-center space-x-2">
                             <i class="fa-solid fa-calendar-days"></i>
                             <span>프로그램</span>
@@ -143,10 +153,11 @@
                     </div>
                     <div>
                         <p class="text-xs opacity-70 font-medium">성경통독 · 성경필사</p>
-                        <h3 id="statTotalPercent" class="text-lg font-bold mt-0.5">0.0% <span class="text-xs font-normal opacity-70">완료</span></h3>
+                        <h3 id="statTotalPercent" class="text-lg font-bold mt-0.5">0절 <span class="text-xs font-normal opacity-70">필사</span></h3>
                         <div class="w-32 bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
                             <div id="statTotalProgressBar" class="bg-indigo-600 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
                         </div>
+                        <p id="statLastPosition" class="text-[11px] opacity-70 mt-1.5">아직 필사 기록이 없습니다</p>
                     </div>
                 </div>
 
@@ -290,8 +301,8 @@
                             <div id="psalmProgressBar" class="bg-indigo-600 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
                         </div>
                     </div>
-                    <button onclick="selectAndStartVerse('PSA', 1, 1, '시편 1장 1절')" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center space-x-2">
-                        <span>시편 1장부터 필사 시작하기</span>
+                    <button onclick="startBookFromProgress('PSA', '시편')" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center space-x-2">
+                        <span id="psalmStartLabel">시편 1장부터 필사 시작하기</span>
                         <i class="fa-solid fa-arrow-right text-[10px]"></i>
                     </button>
                 </div>
@@ -943,6 +954,69 @@
             ];
         }
 
+        // ===== 절 단위 진도 기록 =====
+        // krv_progress_{역본}_{책} = "장:절:누적절수"  (마지막으로 완료한 절)
+        function getBookProgress(version, abbr) {
+            try {
+                const raw = localStorage.getItem(`krv_progress_${version}_${abbr}`);
+                if (!raw) return null;
+                const parts = raw.split(':').map(Number);
+                if (!parts[0]) return null;
+                return { chapter: parts[0], verse: parts[1] || 1, count: parts[2] || 0 };
+            } catch (e) { return null; }
+        }
+
+        function getLastPosition(version) {
+            try {
+                const raw = localStorage.getItem(`krv_last_position_${version}`);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) { return null; }
+        }
+
+        function saveVerseProgress() {
+            try {
+                const ver = currentSession.version;
+                const abbr = currentSession.bookAbbrev;
+                const ch = currentSession.chapter;
+                const vs = currentSession.verse;
+
+                const cur = getBookProgress(ver, abbr) || { chapter: 0, verse: 0, count: 0 };
+                // 앞으로 나아간 경우에만 위치를 갱신 (되돌아가 다시 써도 기록이 줄지 않음)
+                const ahead = (ch > cur.chapter) || (ch === cur.chapter && vs > cur.verse);
+                const keepCh = ahead ? ch : cur.chapter;
+                const keepVs = ahead ? vs : cur.verse;
+                localStorage.setItem(`krv_progress_${ver}_${abbr}`, `${keepCh}:${keepVs}:${cur.count + 1}`);
+
+                const total = parseInt(localStorage.getItem('krv_total_verses') || '0', 10) + 1;
+                localStorage.setItem('krv_total_verses', String(total));
+
+                localStorage.setItem(`krv_last_position_${ver}`, JSON.stringify({
+                    abbr: abbr, chapter: ch, verse: vs, bookName: currentSession.bookName
+                }));
+            } catch (e) { /* 저장 공간이 가득 찬 경우에도 필사는 계속 진행 */ }
+        }
+
+        // 책 이름을 눌렀을 때 저장된 진도에서 이어서 시작
+        function startBookFromProgress(abbr, bookName) {
+            const spot = nextSpotForBook(abbr);
+            selectAndStartVerse(abbr, spot.chapter, spot.verse, `${bookName} ${spot.chapter}장 ${spot.verse}절`);
+        }
+
+        // 마지막으로 필사한 절의 '다음 절'부터 이어서 시작
+        function resumeLastVerse() {
+            const p = getLastPosition(currentSession.version);
+            if (!p) return;
+            const nextV = p.verse + 1;
+            selectAndStartVerse(p.abbr, p.chapter, nextV, `${p.bookName} ${p.chapter}장 ${nextV}절`);
+        }
+
+        // 특정 책을 '이어서' 시작할 위치
+        function nextSpotForBook(abbr) {
+            const pr = getBookProgress(currentSession.version, abbr);
+            if (!pr) return { chapter: 1, verse: 1, resumed: false, count: 0 };
+            return { chapter: pr.chapter, verse: pr.verse + 1, resumed: true, count: pr.count };
+        }
+
         function updateDashboardStats() {
             let totalChaptersAll = 0;
             let completedChaptersAll = 0;
@@ -954,8 +1028,30 @@
             });
 
             const totalPercent = totalChaptersAll > 0 ? ((completedChaptersAll / totalChaptersAll) * 100).toFixed(1) : 0;
-            document.getElementById('statTotalPercent').innerHTML = `${totalPercent}% <span class="text-xs font-normal opacity-70">완료</span>`;
+            const totalVerses = parseInt(localStorage.getItem('krv_total_verses') || '0', 10);
+            document.getElementById('statTotalPercent').innerHTML = `${totalVerses}절 <span class="text-xs font-normal opacity-70">필사</span>`;
             document.getElementById('statTotalProgressBar').style.width = `${totalPercent}%`;
+
+            // 마지막으로 필사한 위치 표시 + '이어서 필사' 버튼
+            const last = getLastPosition(currentSession.version);
+            const lastEl = document.getElementById('statLastPosition');
+            if (lastEl) {
+                lastEl.innerText = last
+                    ? `마지막 ${last.bookName} ${last.chapter}장 ${last.verse}절 · 통독 ${totalPercent}%`
+                    : '아직 필사 기록이 없습니다';
+            }
+            const resumeBtn = document.getElementById('resumeBtn');
+            const resumeLabel = document.getElementById('resumeBtnLabel');
+            if (resumeBtn) {
+                if (last) {
+                    resumeBtn.classList.remove('hidden');
+                    resumeBtn.classList.add('flex');
+                    if (resumeLabel) resumeLabel.innerText = `${last.bookName} ${last.chapter}장 ${last.verse + 1}절 이어서`;
+                } else {
+                    resumeBtn.classList.add('hidden');
+                    resumeBtn.classList.remove('flex');
+                }
+            }
 
             // Streak count (default 0 for fresh users)
             const streak = localStorage.getItem('krv_streak') || '0';
@@ -977,6 +1073,13 @@
             const psalmText = document.getElementById('psalmProgressText');
             const psalmBar = document.getElementById('psalmProgressBar');
             if (psalmText) psalmText.innerText = `시편 150편 중 ${psalmDone}편`;
+            const psalmLabel = document.getElementById('psalmStartLabel');
+            if (psalmLabel) {
+                const ps = nextSpotForBook('PSA');
+                psalmLabel.innerText = ps.resumed
+                    ? `시편 ${ps.chapter}장 ${ps.verse}절부터 이어서 필사하기`
+                    : '시편 1장부터 필사 시작하기';
+            }
             if (psalmBar) psalmBar.style.width = `${(psalmDone / 150) * 100}%`;
         }
 
@@ -1044,6 +1147,8 @@
                 let completedChapters = parseInt(localStorage.getItem(`book_completed_ch_count_${currentSession.version}_${b.abbr}`) || 0, 10);
                 if (completedChapters > b.chapters) completedChapters = b.chapters;
                 const percent = Math.round((completedChapters / b.chapters) * 100);
+                const spot = nextSpotForBook(b.abbr);            // 이어서 시작할 장/절
+                const spotTitle = `${b.name} ${spot.chapter}장 ${spot.verse}절`;
 
                 const card = document.createElement('div');
                 card.className = "theme-card rounded-3xl p-4 border shadow-sm flex flex-col justify-between space-y-3 transition-colors duration-300";
@@ -1068,7 +1173,7 @@
                             </div>
                             <div class="space-y-1">
                                 <div class="flex justify-between text-[11px] opacity-70">
-                                    <span>완료된 장: ${completedChapters}장</span>
+                                    <span>필사 ${spot.count}절 · 완료 ${completedChapters}장</span>
                                     <span>총 ${b.chapters}장</span>
                                 </div>
                                 <div class="w-full bg-slate-700/20 h-2 rounded-full overflow-hidden">
@@ -1077,9 +1182,9 @@
                             </div>
                             <p class="text-[11px] opacity-70 line-clamp-2">${b.theme}</p>
                         </div>
-                        <button onclick="selectAndStartVerse('${b.abbr}', ${Math.min(completedChapters + 1, b.chapters)}, 1, '${b.name} ${Math.min(completedChapters + 1, b.chapters)}장 1절')" class="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm">
+                        <button onclick="selectAndStartVerse('${b.abbr}', ${spot.chapter}, ${spot.verse}, '${spotTitle}')" class="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm">
                             <i class="fa-solid fa-play text-[10px]"></i>
-                            <span>이어서 필사</span>
+                            <span>${spot.resumed ? `${spot.chapter}장 ${spot.verse}절 이어서` : '필사 시작'}</span>
                         </button>
                     `;
                 } else {
@@ -1097,9 +1202,9 @@
                                 <span class="text-[10px] text-indigo-500 font-medium block mt-1">총 ${b.chapters}장</span>
                             </div>
                         </div>
-                        <button onclick="selectAndStartVerse('${b.abbr}', 1, 1, '${b.name} 1장 1절')" class="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm">
+                        <button onclick="selectAndStartVerse('${b.abbr}', ${spot.chapter}, ${spot.verse}, '${spotTitle}')" class="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm">
                             <i class="fa-solid fa-pen-nib text-[10px]"></i>
-                            <span>필사 시작</span>
+                            <span>${spot.resumed ? `${spot.chapter}장 ${spot.verse}절 이어서` : '필사 시작'}</span>
                         </button>
                     `;
                 }
@@ -1282,6 +1387,7 @@
         }
 
         function completeVerseSilently() {
+            saveVerseProgress();   // 완료한 절을 먼저 기록
             const soundEnabled = document.getElementById('toggleSound').checked;
             if (soundEnabled && navigator.vibrate) {
                 navigator.vibrate([40, 40]);
